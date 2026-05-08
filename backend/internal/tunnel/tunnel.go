@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +42,7 @@ type Request struct {
 	Done    chan struct{}    // closed on end
 	cancel  chan struct{}    // closed when receiver disconnects
 	closeFn func()
+	done    atomic.Bool // true once closeFn has run — guards Body sends
 }
 
 var (
@@ -92,10 +94,14 @@ func (t *Tunnel) dispatch(op byte, id RequestID, payload []byte) {
 		default:
 		}
 	case OpBody:
+		if req.done.Load() {
+			return
+		}
 		chunk := make([]byte, len(payload))
 		copy(chunk, payload)
 		select {
 		case req.Body <- chunk:
+		case <-req.Done:
 		case <-req.cancel:
 		}
 	case OpEnd:
@@ -134,8 +140,12 @@ func (t *Tunnel) Open(ctx context.Context, header OpenHeader) (*Request, error) 
 	var once sync.Once
 	req.closeFn = func() {
 		once.Do(func() {
+			req.done.Store(true)
 			close(req.Done)
-			close(req.Body)
+			// Deliberately do NOT close req.Body. Senders check req.done.Load()
+			// and the select's Done case prevents further sends; closing Body
+			// would race with in-flight OpBody dispatchers. Readers use the
+			// Done channel to know when to stop.
 		})
 	}
 	t.requests[id] = req
@@ -188,8 +198,14 @@ type bodyReader struct {
 func (br *bodyReader) Read(p []byte) (int, error) {
 	if len(br.buf) == 0 {
 		select {
-		case b, ok := <-br.r.Body:
-			if !ok {
+		case b := <-br.r.Body:
+			br.buf = b
+		case <-br.r.Done:
+			// Drain anything still queued before reporting EOF.
+			select {
+			case b := <-br.r.Body:
+				br.buf = b
+			default:
 				select {
 				case err := <-br.r.Err:
 					return 0, err
@@ -197,7 +213,6 @@ func (br *bodyReader) Read(p []byte) (int, error) {
 					return 0, io.EOF
 				}
 			}
-			br.buf = b
 		case <-br.r.cancel:
 			return 0, ErrCancelled
 		}

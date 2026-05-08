@@ -94,10 +94,7 @@ func (s *Server) handleProxy(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadGateway, "sender offline")
 	}
 
-	ctx, cancel := context.WithTimeout(c.Context(), 30*time.Minute)
-	defer cancel()
-
-	req, err := t.Open(ctx, tunnel.OpenHeader{
+	req, err := t.Open(context.Background(), tunnel.OpenHeader{
 		Method:  c.Method(),
 		Path:    "/" + c.Params("*"),
 		Headers: map[string][]string{"User-Agent": {c.Get("User-Agent")}},

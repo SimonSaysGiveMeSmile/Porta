@@ -52,3 +52,9 @@ tmp/
 # Local-only agent skill symlinks (resolve to this machine's Sarea.app)
 .agents/
 .claude/
+
+# XcodeGen output (project.yml is the source of truth)
+ios/Porta.xcodeproj/
+ios/*.xcworkspace/
+ios/.build/
+ios/DerivedData/

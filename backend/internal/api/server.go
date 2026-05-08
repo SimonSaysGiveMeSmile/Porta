@@ -75,14 +75,16 @@ func (s *Server) routes() {
 	v1.Post("/auth/verify", s.handleAuthVerify)
 	v1.Post("/devices/register", s.handleDeviceRegister)
 
-	// Authenticated sender routes.
-	authed := v1.Group("", s.requireJWT)
-	authed.Post("/shares", s.handleShareCreate)
-	authed.Get("/shares", s.handleShareList)
-	authed.Delete("/shares/:id", s.handleShareRevoke)
-	authed.Post("/sessions/:id/approve", s.handleSessionApprove)
-	authed.Post("/sessions/:id/reject", s.handleSessionReject)
-	authed.Post("/sessions/:id/close", s.handleSessionClose)
+	// Authenticated sender routes. Apply requireJWT inline (Group("", mw)
+	// with an empty prefix would install the middleware on every sibling
+	// route — including the public receiver paths — so it's unsafe here.)
+	v1.Post("/shares", s.requireJWT, s.handleShareCreate)
+	v1.Get("/shares", s.requireJWT, s.handleShareList)
+	v1.Delete("/shares/:id", s.requireJWT, s.handleShareRevoke)
+	v1.Post("/sessions/:id/approve", s.requireJWT, s.handleSessionApprove)
+	v1.Post("/sessions/:id/reject", s.requireJWT, s.handleSessionReject)
+	v1.Post("/sessions/:id/close", s.requireJWT, s.handleSessionClose)
+	v1.Get("/sessions/pending", s.requireJWT, s.handleSessionsPending)
 
 	// Public receiver routes (unauthenticated; token grants access).
 	v1.Get("/shares/by-token/:token", s.handlePublicGetShare)

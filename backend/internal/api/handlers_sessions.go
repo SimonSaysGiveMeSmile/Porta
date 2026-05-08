@@ -67,6 +67,14 @@ func (s *Server) handleSessionStatus(c *fiber.Ctx) error {
 	})
 }
 
+func (s *Server) handleSessionsPending(c *fiber.Ctx) error {
+	rows, err := s.d.Sessions.ListPendingForOwner(c.Context(), deviceID(c), 50)
+	if err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"sessions": rows})
+}
+
 type sessionTxFn func(ctx context.Context, id, owner uuid.UUID) (*session.Session, error)
 
 func (s *Server) handleSessionApprove(c *fiber.Ctx) error {

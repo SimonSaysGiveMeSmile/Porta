@@ -106,6 +106,39 @@ func (s *Service) Close(ctx context.Context, id, ownerDeviceID uuid.UUID) (*Sess
 	return s.transition(ctx, id, ownerDeviceID, StatusApproved, StatusClosed, "closed_at")
 }
 
+// ListPendingForOwner returns pending session requests against any share
+// owned by the device. Polled by the sender when APNS is unavailable.
+func (s *Service) ListPendingForOwner(ctx context.Context, owner uuid.UUID, limit int) ([]*Session, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT s.id, s.share_id, sh.owner_device_id,
+		       COALESCE(host(s.requester_ip), ''), COALESCE(s.requester_ua, ''),
+		       s.status, s.approved_at, s.rejected_at, s.closed_at, s.created_at
+		FROM sessions s JOIN shares sh ON sh.id = s.share_id
+		WHERE sh.owner_device_id = $1 AND s.status = 'pending'
+		ORDER BY s.created_at ASC
+		LIMIT $2
+	`, owner, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*Session
+	for rows.Next() {
+		var sess Session
+		if err := rows.Scan(&sess.ID, &sess.ShareID, &sess.OwnerDeviceID,
+			&sess.RequesterIP, &sess.RequesterUA, &sess.Status,
+			&sess.ApprovedAt, &sess.RejectedAt, &sess.ClosedAt, &sess.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &sess)
+	}
+	return out, rows.Err()
+}
+
 func (s *Service) transition(ctx context.Context, id, owner uuid.UUID, from, to Status, tsCol string) (*Session, error) {
 	tag, err := s.db.Exec(ctx, `
 		UPDATE sessions SET status = $3, `+tsCol+` = now()

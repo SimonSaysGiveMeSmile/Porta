@@ -1,0 +1,54 @@
+# XcodeGen project spec. Run `xcodegen generate` in this directory to produce
+# Porta.xcodeproj, then open it in Xcode.
+#
+# This keeps the real project file out of git — just the declaration lives
+# here, which is easier to review and merge.
+
+name: Porta
+options:
+  bundleIdPrefix: app.porta.ios
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+packages:
+  PortaCore:
+    path: PortaCore
+
+targets:
+  Porta:
+    type: application
+    platform: iOS
+    sources:
+      - path: Porta
+    info:
+      path: Porta/Info.plist
+    dependencies:
+      - package: PortaCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.porta.ios
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: Porta/Info.plist
+
+  PortaShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PortaShareExtension
+    info:
+      path: PortaShareExtension/Info.plist
+    dependencies:
+      - package: PortaCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.porta.ios.share
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: PortaShareExtension/Info.plist

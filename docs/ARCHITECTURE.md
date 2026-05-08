@@ -1,71 +1,119 @@
 # Porta Architecture
 
-## Goals
+## Core insight
 
-- Ephemeral, user-approved transfers. Backend is a coordinator, not storage.
-- Direct P2P via WebRTC; TURN relay fallback; DTLS-encrypted end-to-end.
-- Receiver needs only a browser — no app, no account.
+The hard part of device-to-device transfer is reachability: the phone isn't
+addressable from the public internet. Porta's architecture sidesteps it.
+
+Instead of NAT-punching in, **the sender opens a reverse tunnel out**. The
+backend exposes a public URL; requests hit the backend, get forwarded back
+through the tunnel to the phone, and the phone streams the file bytes as the
+response. It is a tiny, purpose-built ngrok that runs inside an iOS app.
+
+Consequences:
+
+- No STUN / TURN / WebRTC on day one. A WebSocket is enough.
+- The browser receiver only needs vanilla `fetch` — no WebRTC peer.
+- Reachability works behind any NAT: carrier, enterprise, hotel wifi, LTE.
+- Bytes touch the backend, but are never persisted.
 
 ## Components
 
 ```
-  iOS app                         Web receiver
-    │                                   │
-    │  REST (auth, share, session)      │  REST (request, session)
-    │  WSS  (signaling)                 │  WSS  (signaling)
-    ▼                                   ▼
- ┌──────────────────────────────────────────────┐
- │            Backend (Go / Fiber)              │
- │  - share/session/device services             │
- │  - WebRTC signaling hub (Redis pub/sub)      │
- │  - APNS dispatcher                           │
- │  - TURN credential issuer (HMAC)             │
- └──────┬────────────────────────────┬──────────┘
-        │                            │
-        ▼                            ▼
-    PostgreSQL                     Redis
-   (durable metadata)           (sessions, pubsub)
-
-        ┌────────────────────────────────┐
-        │   coturn (STUN/TURN relay)     │
-        └────────────────────────────────┘
+ iOS app (sender)                   Browser (receiver)
+     │                                    │
+     │  outbound WSS                      │  HTTPS
+     │  /v1/tunnel                        │  /s/<token>  /p/<session>/*
+     ▼                                    ▼
+ ┌────────────────────────────────────────────┐
+ │        Porta backend (Go / Fiber)          │
+ │  - auth (device keypair → JWT)             │
+ │  - shares + sessions + APNS                │
+ │  - tunnel hub (share_id → live tunnel)     │
+ │  - /p proxy: request → tunnel → response   │
+ └──────────────────┬─────────────────────────┘
+                    │
+                    ▼
+                PostgreSQL
+              (durable metadata)
 ```
 
-## Data model (summary)
+## The tunnel wire format
 
-- `devices`        — one per installed app, with public key + APNS token.
-- `shares`         — a live link: `token`, `owner_device_id`, `expires_at`.
-- `sessions`       — a receiver's request against a share.
-- `transfers`      — byte accounting per session.
+A single WebSocket per active share. Frames are binary:
 
-See `backend/internal/storage/migrations/` for SQL.
+```
+┌────────┬───────────────────────┬──────────────┐
+│ op (1) │ requestID (16)        │ payload (n)  │
+└────────┴───────────────────────┴──────────────┘
+```
 
-## Share token design
+Opcodes:
 
-- 128-bit random share ID, base62-encoded (`4f9a2x...`).
-- Signed with HMAC-SHA256 on a server secret; carries `exp`.
-- Public URL: `https://porta.app/s/<token>`.
+| Op      | Dir            | Meaning                              |
+| ------- | -------------- | ------------------------------------ |
+| `OPEN`  | edge → sender  | begin request; payload = JSON header |
+| `HEAD`  | sender → edge  | response status + headers (JSON)     |
+| `BODY`  | bidi           | body chunk; payload = raw bytes      |
+| `END`   | bidi           | stream complete                      |
+| `ERR`   | sender → edge  | error message (utf-8)                |
+| `CANCEL`| edge → sender  | receiver disconnected                |
 
-## Session lifecycle
+Requests are multiplexed — a single tunnel can handle several concurrent
+downloads. The Go server lives in `backend/internal/tunnel/`; the Swift
+client is in `ios/PortaCore/Sources/PortaCore/TunnelClient.swift`. Both use
+the exact same framing.
 
-1. Sender → `POST /v1/shares` → `{share_id, token, share_url}`.
-2. Receiver opens `/s/<token>` in browser; hits `POST /v1/shares/<token>/requests`.
-3. Server creates `session` in `PENDING`, fires silent APNS to owner device.
-4. Sender app wakes, user taps approve → `POST /v1/sessions/<id>/approve`.
-5. Both sides open `WSS /v1/signal/<session_id>`; exchange SDP + ICE.
-6. WebRTC attempts direct; falls back to coturn if needed.
-7. Byte transfer over a data channel (16 KiB-chunked, resumable).
+## End-to-end flow
+
+1. iOS app generates an Ed25519 keypair (Keychain), signs a nonce,
+   receives a JWT.
+2. User selects files → `POST /v1/shares` → `{id, token, share_url}`.
+3. App opens `wss://.../v1/tunnel?share=<id>&token=<jwt>`. Ownership checked.
+4. App hands the sender a `TunnelClient` wrapping a `FileServer` responder.
+5. Receiver opens `https://porta.app/s/<token>` → landing page, sees files.
+6. Receiver taps "Request files" → `POST /v1/shares/by-token/<token>/requests`.
+7. Backend creates session (pending), APNS-wakes the owner device.
+8. User taps the notification → app shows approval sheet → `POST
+   /v1/sessions/<id>/approve`.
+9. Browser polls `/v1/sessions/<id>/status`, sees `approved`, navigates to
+   `/p/<session>/files/<name>`.
+10. Backend finds the share's tunnel, fires an `OPEN` frame, pipes `HEAD` +
+    `BODY` frames straight into the HTTP response.
+
+If the sender closes the app, the WebSocket dies, the hub entry is removed,
+and subsequent `/p` requests get `502 sender offline`.
 
 ## Security
 
-- Device identity: Ed25519 keypair in iOS Keychain; registered on first launch.
-- Auth: device attests by signing a server-issued nonce → JWT (30 min).
-- Share tokens signed + expiring. Sessions scoped to a share.
-- TURN credentials: short-lived (TTL 60s), HMAC'd from shared secret.
-- No file bytes touch backend storage. Backend sees metadata + envelope only.
+- **Device identity**: Ed25519 keypair, private key in Keychain
+  (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). Public key is the
+  row key in `devices`.
+- **Auth**: server-issued 32-byte nonce; signed with device private key;
+  exchanged for a 30-min HS256 JWT. No passwords.
+- **Share tokens**: `base64url(id[16] || expUnix[8]) . base64url(HMAC256(payload))`.
+  Rejected client-side without a DB hit if malformed or expired.
+- **Session authorization**: the tunnel is keyed by share ID; the `/p/` route
+  checks the session is `approved` *and* belongs to that share *and* the
+  tunnel is connected.
+- **Bytes in flight**: WSS is TLS. The backend's memory sees body chunks for
+  milliseconds. No disk persistence.
 
-## Why Go + Fiber
+## What's explicitly *not* here
 
-- Cheap per-connection cost for WebSocket signaling hub.
-- Simple operational profile (single static binary).
-- Fiber is thin, fast, and keeps the surface area small for an MVP.
+- No WebRTC / STUN / TURN. (We may reintroduce a direct path later for LAN
+  transfers, but the MVP bar is "works globally, always".)
+- No cloud storage. Shares disappear when the tunnel disconnects.
+- No accounts. Device = identity.
+- No background tunnels. iOS will kill the socket after a few seconds in
+  background; the UX mirrors FaceTime rather than a server.
+
+## Horizontal scaling (later)
+
+The tunnel hub is in-process, keyed by `shareID`. To scale, the obvious move
+is: sticky-route both the tunnel WebSocket and the `/p/` request to the same
+backend instance (by share ID, via consistent hash). Redis pub/sub becomes a
+secondary fallback if a `/p/` request lands on an instance that doesn't hold
+the tunnel.
+
+For an MVP, a single backend node behind Fly.io or Hetzner is plenty.
