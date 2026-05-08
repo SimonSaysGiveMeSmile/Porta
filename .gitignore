@@ -1,0 +1,54 @@
+# Build artifacts
+bin/
+dist/
+build/
+*.exe
+*.test
+*.out
+coverage.out
+
+# Go
+vendor/
+
+# Node / web
+node_modules/
+.pnpm-store/
+.next/
+.cache/
+.parcel-cache/
+.vite/
+.turbo/
+
+# iOS / Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+Pods/
+.build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+AuthKey_*.p8
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Logs / tmp
+*.log
+tmp/
+
+# Local-only agent skill symlinks (resolve to this machine's Sarea.app)
+.agents/
+.claude/
