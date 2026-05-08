@@ -24,6 +24,31 @@ final class LANHostTests: XCTestCase {
         XCTAssertTrue(response.contains("hello.txt"))
     }
 
+    /// The root path serves a self-contained HTML landing page listing the
+    /// shared files so a receiver can just open the URL in any browser —
+    /// the "no backend required" path.
+    func testLandingPageServesHTMLWithFileLinks() async throws {
+        let files = [
+            ShareFile(name: "report.pdf", size: 1234),
+            ShareFile(name: "photo.jpg", size: 567_890),
+        ]
+        let manifest = LANHost.ShareManifest(title: "Meeting notes", files: files)
+
+        let host = LANHost(manifest: manifest, responder: StubResponder())
+        try host.start()
+        defer { host.stop() }
+
+        let port = try await waitForPort(host, timeoutMs: 2000)
+        let response = try await get(host: "127.0.0.1", port: port, path: "/")
+
+        XCTAssertTrue(response.contains("HTTP/1.1 200"))
+        XCTAssertTrue(response.lowercased().contains("text/html"))
+        XCTAssertTrue(response.contains("Meeting notes"))
+        XCTAssertTrue(response.contains("/files/report.pdf"))
+        XCTAssertTrue(response.contains("/files/photo.jpg"))
+        XCTAssertTrue(response.contains("2 files"))
+    }
+
     // MARK: - helpers
 
     private func waitForPort(_ host: LANHost, timeoutMs: Int) async throws -> UInt16 {

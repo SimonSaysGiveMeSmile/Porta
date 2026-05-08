@@ -1,61 +1,53 @@
 import SwiftUI
 
 /// Background that uses iOS 26 Liquid Glass when available, falling back to
-/// `.ultraThinMaterial` on older systems. Keeps view code declarative.
+/// `.ultraThinMaterial` on older systems. Pure monochrome — no tints.
 struct GlassCard<S: Shape>: ViewModifier {
     let shape: S
-    let tint: Color?
 
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content
-                .background(tint?.opacity(0.12) ?? .clear, in: shape)
+                .background(Color.white.opacity(0.04), in: shape)
                 .glassEffect(.regular, in: shape)
+                .overlay(
+                    shape.stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                )
         } else {
             content
-                .background(tint?.opacity(0.12) ?? .clear, in: shape)
+                .background(Color.white.opacity(0.04), in: shape)
                 .background(.ultraThinMaterial, in: shape)
+                .overlay(
+                    shape.stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                )
         }
     }
 }
 
 extension View {
-    func glassCard(cornerRadius: CGFloat = 20, tint: Color? = nil) -> some View {
+    func glassCard(cornerRadius: CGFloat = 20) -> some View {
         modifier(GlassCard(
-            shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
-            tint: tint
+            shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         ))
     }
 }
 
-/// Ambient gradient used behind the home screen. Looks better with glass on top.
+/// Pure-black backdrop with a very subtle radial highlight. Replaces the
+/// previous cyan/purple ambient gradient for the monochrome theme.
 struct AmbientBackground: View {
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.07, green: 0.09, blue: 0.18),
-                Color(red: 0.12, green: 0.06, blue: 0.20),
-                Color(red: 0.05, green: 0.12, blue: 0.18),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .overlay(
+        ZStack {
+            Color.black.ignoresSafeArea()
             RadialGradient(
-                colors: [Color.purple.opacity(0.35), .clear],
-                center: .topTrailing,
+                colors: [
+                    Color.white.opacity(0.06),
+                    Color.white.opacity(0.0),
+                ],
+                center: .top,
                 startRadius: 20,
-                endRadius: 420
+                endRadius: 520
             )
-        )
-        .overlay(
-            RadialGradient(
-                colors: [Color.cyan.opacity(0.28), .clear],
-                center: .bottomLeading,
-                startRadius: 20,
-                endRadius: 420
-            )
-        )
-        .ignoresSafeArea()
+            .ignoresSafeArea()
+        }
     }
 }

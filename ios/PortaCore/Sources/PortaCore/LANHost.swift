@@ -18,12 +18,18 @@ public final class LANHost: @unchecked Sendable {
     public struct ShareManifest: Codable {
         public let title: String?
         public let files: [ShareFile]
+
+        public init(title: String?, files: [ShareFile]) {
+            self.title = title
+            self.files = files
+        }
     }
 
     private let manifest: ShareManifest
     private let responder: TunnelResponder
     private let serviceType: String
     private let serviceName: String
+    private let desiredPort: UInt16?
     private let queue = DispatchQueue(label: "porta.lan")
 
     private var listener: NWListener?
@@ -33,18 +39,25 @@ public final class LANHost: @unchecked Sendable {
         manifest: ShareManifest,
         responder: TunnelResponder,
         serviceType: String = "_porta._tcp.",
-        serviceName: String = "Porta"
+        serviceName: String = "Porta",
+        desiredPort: UInt16? = nil
     ) {
         self.manifest = manifest
         self.responder = responder
         self.serviceType = serviceType
         self.serviceName = serviceName
+        self.desiredPort = desiredPort
     }
 
     public func start() throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        let listener = try NWListener(using: params)
+        let listener: NWListener
+        if let desired = desiredPort, let nwPort = NWEndpoint.Port(rawValue: desired) {
+            listener = try NWListener(using: params, on: nwPort)
+        } else {
+            listener = try NWListener(using: params)
+        }
         listener.service = NWListener.Service(name: serviceName, type: serviceType)
 
         listener.newConnectionHandler = { [weak self] conn in
@@ -102,6 +115,15 @@ public final class LANHost: @unchecked Sendable {
         }
         let method = String(parts[0])
         let path = String(parts[1])
+
+        if path == "/" || path == "/index.html" {
+            let html = renderLandingPage(manifest: manifest)
+            let body = Data(html.utf8)
+            respond(conn, status: 200,
+                    headers: ["Content-Type": "text/html; charset=utf-8"],
+                    body: body)
+            return
+        }
 
         if path == "/share" {
             let data = (try? JSONEncoder().encode(manifest)) ?? Data()

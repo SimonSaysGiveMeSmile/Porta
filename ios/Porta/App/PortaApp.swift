@@ -50,7 +50,7 @@ struct RootView: View {
                 VStack(spacing: 20) {
                     HomeHeader(showSettings: { showingSettings = true })
 
-                    if !state.connection.isOnline {
+                    if state.preferredMode == .backend && !state.connection.isOnline {
                         OfflineBanner(showSettings: { showingSettings = true })
                     }
 
@@ -64,8 +64,8 @@ struct RootView: View {
                         RequestsSection(approvals: state.pendingApprovals)
                     }
 
-                    if !state.recentShares.isEmpty {
-                        RecentSection(shares: state.recentShares)
+                    if !state.history.isEmpty {
+                        HistorySection(entries: state.history)
                     }
 
                     Spacer(minLength: 40)
@@ -120,19 +120,21 @@ private struct HomeHeader: View {
     }
 
     private var dotColor: Color {
+        if state.preferredMode == .lan { return .white }
         switch state.connection {
-        case .online: .green
-        case .connecting: .yellow
-        case .offline: .orange
-        case .unknown: .gray
+        case .online:     return .white
+        case .connecting: return .white.opacity(0.5)
+        case .offline:    return .white.opacity(0.25)
+        case .unknown:    return .white.opacity(0.35)
         }
     }
     private var statusText: String {
+        if state.preferredMode == .lan { return "LAN — ready to share" }
         switch state.connection {
-        case .online: "Ready to share"
-        case .connecting: "Connecting to server…"
-        case .offline(let r): "Offline — \(r)"
-        case .unknown: "Not connected"
+        case .online:            return "Backend — ready to share"
+        case .connecting:        return "Connecting to backend…"
+        case .offline(let r):    return "Backend offline — \(r)"
+        case .unknown:           return "Not connected"
         }
     }
 }
@@ -143,20 +145,20 @@ private struct OfflineBanner: View {
         HStack(spacing: 12) {
             Image(systemName: "antenna.radiowaves.left.and.right.slash")
                 .font(.title2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(.white.opacity(0.75))
             VStack(alignment: .leading, spacing: 2) {
-                Text("Server unreachable").font(.callout.weight(.semibold)).foregroundStyle(.white)
-                Text("Open Settings to point Porta at your dev server.")
+                Text("Backend unreachable").font(.callout.weight(.semibold)).foregroundStyle(.white)
+                Text("Porta will use LAN mode until the backend is back.")
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
             }
             Spacer()
             Button("Settings", action: showSettings)
                 .buttonStyle(.borderedProminent)
-                .tint(.white.opacity(0.2))
+                .tint(.white.opacity(0.14))
                 .foregroundStyle(.white)
         }
         .padding(16)
-        .glassCard(tint: .orange)
+        .glassCard()
     }
 }
 
@@ -176,7 +178,7 @@ private struct PrimaryShareCard: View {
                 Text("Share files")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
-                Text("Pick files, get a link, send it anywhere. Transfer is peer-to-peer and ends when you close Porta.")
+                Text("Pick files, get a link, send it anywhere on your Wi-Fi. No backend, no account, no cloud. Transfer ends when you close Porta.")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
@@ -184,7 +186,7 @@ private struct PrimaryShareCard: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 28)
-            .glassCard(cornerRadius: 24, tint: .cyan)
+            .glassCard(cornerRadius: 24)
         }
         .buttonStyle(.plain)
     }

@@ -164,23 +164,28 @@ struct ActiveShareCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Circle().fill(.green).frame(width: 8, height: 8)
-                Text("Active share").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.8))
+                Circle().fill(.white).frame(width: 8, height: 8)
+                Text("Active share").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
                 Spacer()
+                Text(share.kind == .lan ? "LAN" : "Backend")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.white.opacity(0.12), in: Capsule())
             }
-            Text(share.share.title ?? "Untitled")
+            Text(share.title ?? "Untitled")
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.white)
 
             HStack(spacing: 10) {
-                Text(share.share.share_url)
+                Text(share.shareURL)
                     .font(.caption.monospaced())
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
                 Button {
-                    UIPasteboard.general.string = share.share.share_url
+                    UIPasteboard.general.string = share.shareURL
                     copied = true
                     Task {
                         try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -192,19 +197,21 @@ struct ActiveShareCard: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(.white.opacity(0.18), in: Capsule())
+                        .background(.white.opacity(0.14), in: Capsule())
                 }
             }
             .padding(10)
             .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            Text("Keep Porta open to serve this link. Closing the app ends the session.")
+            Text(share.kind == .lan
+                ? "Open this URL on any device on the same Wi-Fi. Closing Porta stops the transfer."
+                : "Share this link anywhere. Closing Porta ends the session.")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.55))
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(tint: .green)
+        .glassCard()
     }
 }
 
@@ -242,13 +249,14 @@ struct ApprovalCard: View {
                 Image(systemName: "xmark").font(.footnote.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(10)
-                    .background(.red.opacity(0.6), in: Circle())
+                    .background(.white.opacity(0.12), in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 0.5))
             }
             Button { Task { await state.approve(approval) } } label: {
                 Image(systemName: "checkmark").font(.footnote.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.black)
                     .padding(10)
-                    .background(.green.opacity(0.7), in: Circle())
+                    .background(.white, in: Circle())
             }
         }
         .padding(16)
@@ -256,40 +264,99 @@ struct ApprovalCard: View {
     }
 }
 
-struct RecentSection: View {
-    let shares: [CreatedShare]
+struct HistorySection: View {
+    @EnvironmentObject var state: AppState
+    let entries: [ShareHistoryEntry]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Recent", systemImage: "clock.fill")
-                .font(.headline)
-                .foregroundStyle(.white)
+            HStack {
+                Label("History", systemImage: "clock.fill")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Spacer()
+                Button("Clear") { state.clearHistory() }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
             VStack(spacing: 8) {
-                ForEach(shares, id: \.id) { RecentRow(share: $0) }
+                ForEach(entries) { HistoryRow(entry: $0) }
             }
         }
     }
 }
 
-private struct RecentRow: View {
-    let share: CreatedShare
+private struct HistoryRow: View {
+    @EnvironmentObject var state: AppState
+    let entry: ShareHistoryEntry
+    @State private var copied = false
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "link")
+            Image(systemName: entry.kind == .lan ? "wifi" : "link")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.8))
                 .frame(width: 32, height: 32)
-                .background(.white.opacity(0.12), in: Circle())
+                .background(.white.opacity(0.10), in: Circle())
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(share.title ?? "Share").font(.callout.weight(.medium)).foregroundStyle(.white)
-                Text(share.share_url)
+                Text(entry.title ?? "Share")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Text(entry.kind == .lan ? "LAN" : "Backend")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text("·").foregroundStyle(.white.opacity(0.35))
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Text(entry.shareURL)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.white.opacity(0.55))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             Spacer()
+            Button {
+                UIPasteboard.general.string = entry.shareURL
+                copied = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_200_000_000)
+                    copied = false
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(8)
+                    .background(.white.opacity(0.10), in: Circle())
+            }
+            .buttonStyle(.plain)
         }
         .padding(12)
         .glassCard(cornerRadius: 14)
+        .contextMenu {
+            Button(role: .destructive) {
+                state.deleteHistoryEntry(entry)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
+
+    private var subtitle: String {
+        let count = entry.fileNames.count
+        let filesText = "\(count) file\(count == 1 ? "" : "s")"
+        let size = ByteCountFormatter.string(fromByteCount: entry.totalBytes, countStyle: .file)
+        let when = Self.relativeFormatter.localizedString(for: entry.createdAt, relativeTo: Date())
+        return "\(filesText) · \(size) · \(when)"
+    }
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
 }

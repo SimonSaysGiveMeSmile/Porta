@@ -13,6 +13,7 @@ struct SettingsView: View {
                 AmbientBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
+                        modeCard
                         serverCard
                         identityCard
                         presetsCard
@@ -29,6 +30,25 @@ struct SettingsView: View {
             }
         }
         .onAppear { draftURL = state.backendURLString }
+    }
+
+    private var modeCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Transfer mode", systemImage: "square.stack.3d.up.fill")
+                .font(.headline)
+                .foregroundStyle(.white)
+            Text("LAN mode needs no backend — your iPhone serves files directly to devices on the same Wi-Fi. Backend mode uses the reverse tunnel, so the link works off-network.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.7))
+            Picker("Mode", selection: $state.preferredMode) {
+                Text("LAN (no backend)").tag(TransferMode.lan)
+                Text("Backend tunnel").tag(TransferMode.backend)
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 
     private var serverCard: some View {
@@ -82,10 +102,10 @@ struct SettingsView: View {
 
     private var connectionColor: Color {
         switch state.connection {
-        case .online: .green
-        case .connecting: .yellow
-        case .offline: .red
-        case .unknown: .gray
+        case .online:     return .white
+        case .connecting: return .white.opacity(0.5)
+        case .offline:    return .white.opacity(0.25)
+        case .unknown:    return .white.opacity(0.35)
         }
     }
 
